@@ -1,23 +1,4 @@
-## MHW Geoguesser
-
-Projet pour deviner des lieux liés à **Monster Hunter World** à partir d'indices (type Geoguessr).
-
-### Installation
-
-1. Assure-toi d'avoir **Git** et les dépendances nécessaires (par ex. Node, Python, etc. selon le projet).
-2. Clone le dépôt une fois créé sur GitHub :
-   ```bash
-   git clone https://github.com/<ton-pseudo>/MHW_Geoguesser.git
-   ```
-
-### Développement
-
-- Ajoute ici les commandes pour lancer le projet (par ex. `npm install`, `npm run dev`, etc.).
-
-### Licence
-
-Ajoute ici la licence de ton choix (MIT, GPL, etc.).
-# ⚔️ Monster Hunter Wilds Geoguesser 🎯
+#  Monster Hunter Wilds Geoguesser 
 
 Un jeu de géolocalisation inspiré de Geoguessr, mais adapté pour la carte du jeu vidéo Monster Hunter Wilds.
 
