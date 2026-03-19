@@ -1,5 +1,8 @@
-#  Monster Hunter Wilds Geoguesser 
+# ⚔️ Monster Hunter Wilds Geoguesser 🎯
 
+Doc utilisateur complète : `USER_DOC.md`.
+
+Le reste de ce fichier est conservé pour compatibilité mais peut être incomplet. Réfère-toi à `USER_DOC.md`.
 Un jeu de géolocalisation inspiré de Geoguessr, mais adapté pour la carte du jeu vidéo Monster Hunter Wilds.
 
 ## 🚀 Installation
