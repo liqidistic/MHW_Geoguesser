@@ -1,160 +1,165 @@
--- Exemples de requêtes SQL pour Monster Hunter Wilds Geoguesser
+-- Requêtes SQL d'exemples qui correspondent aux requêtes réellement utilisées
+-- dans le backend (voir server/index.js).
 
--- ==========================================
--- REQUÊTES DE SÉLECTION
--- ==========================================
+-- ==========================
+-- API /api/locations
+-- ==========================
 
--- Récupérer toutes les localisations avec le nombre de cartes et captures d'écran
-SELECT 
-    l.id,
-    l.name,
-    l.x,
-    l.y,
-    l.description,
-    COUNT(DISTINCT rm.id) AS map_count,
-    COUNT(DISTINCT gs.id) AS screenshot_count
+-- GET /api/locations
+SELECT *
+FROM locations
+ORDER BY name;
+
+-- Récupération des cartes de région pour une location (appelée dans une boucle côté JS)
+SELECT file_path, display_order
+FROM region_maps
+WHERE location_id = ?
+ORDER BY display_order;
+
+-- ==========================
+-- API /api/locations/:id
+-- ==========================
+
+-- GET /api/locations/:id (infos location)
+SELECT *
+FROM locations
+WHERE id = ?;
+
+-- GET /api/locations/:id (cartes de région)
+SELECT file_path, display_order
+FROM region_maps
+WHERE location_id = ?
+ORDER BY display_order;
+
+-- GET /api/locations/:id (IDs des captures disponibles)
+SELECT id
+FROM game_screenshots
+WHERE location_id = ?
+  AND image_data IS NOT NULL;
+
+-- ==========================
+-- API /api/locations/with-screenshots
+-- ==========================
+
+-- GET /api/locations/with-screenshots (liste des locations avec au moins une capture)
+SELECT DISTINCT
+  l.id,
+  l.name,
+  l.x,
+  l.y,
+  l.description
 FROM locations l
-LEFT JOIN region_maps rm ON l.id = rm.location_id
-LEFT JOIN game_screenshots gs ON l.id = gs.location_id
-GROUP BY l.id, l.name, l.x, l.y, l.description
+INNER JOIN game_screenshots gs ON l.id = gs.location_id
 ORDER BY l.name;
 
--- Récupérer une capture d'écran aléatoire avec toutes les informations nécessaires pour le jeu
-SELECT 
-    gs.id AS screenshot_id,
-    gs.file_path AS screenshot_path,
-    gs.actual_x,
-    gs.actual_y,
-    gs.difficulty,
-    l.id AS location_id,
-    l.name AS location_name,
-    l.description,
-    l.x AS map_x,
-    l.y AS map_y,
-    -- Récupérer les cartes de région associées
-    (SELECT GROUP_CONCAT(rm.file_path ORDER BY rm.display_order SEPARATOR '|')
-     FROM region_maps rm 
-     WHERE rm.location_id = l.id) AS region_maps
+-- (ensuite côté JS : requêtes identiques à /api/locations/:id pour region_maps + screenshot ids)
+
+-- ==========================
+-- API /api/screenshots/:id/image
+-- ==========================
+
+-- GET /api/screenshots/:id/image (BLOB image)
+SELECT image_data, image_type
+FROM game_screenshots
+WHERE id = ?;
+
+-- ==========================
+-- API /api/screenshots/random
+-- ==========================
+
+-- GET /api/screenshots/random (une capture aléatoire + info localisation + region_map associée)
+SELECT
+  gs.id AS screenshot_id,
+  gs.actual_x,
+  gs.actual_y,
+  gs.difficulty,
+  l.id AS location_id,
+  l.name AS location_name,
+  l.description,
+  l.x AS map_x,
+  l.y AS map_y,
+  COALESCE(
+    (SELECT rm2.id
+     FROM region_maps rm2
+     WHERE rm2.id = gs.region_map_id
+     LIMIT 1),
+    (SELECT rm2.id
+     FROM region_maps rm2
+     WHERE rm2.location_id = gs.location_id
+     ORDER BY rm2.display_order
+     LIMIT 1)
+  ) AS resolved_region_map_id,
+  COALESCE(
+    (SELECT rm2.file_path
+     FROM region_maps rm2
+     WHERE rm2.id = gs.region_map_id
+     LIMIT 1),
+    (SELECT rm2.file_path
+     FROM region_maps rm2
+     WHERE rm2.location_id = gs.location_id
+     ORDER BY rm2.display_order
+     LIMIT 1)
+  ) AS region_map_file_path
 FROM game_screenshots gs
 JOIN locations l ON gs.location_id = l.id
+WHERE gs.image_data IS NOT NULL
 ORDER BY RAND()
 LIMIT 1;
 
--- Récupérer toutes les cartes de région pour une localisation donnée
-SELECT 
-    rm.id,
-    rm.file_path,
-    rm.display_order,
-    l.name AS location_name
-FROM region_maps rm
-JOIN locations l ON rm.location_id = l.id
-WHERE l.name = 'Ruins of Wyveria'
-ORDER BY rm.display_order;
+-- ==========================
+-- API /api/screenshots (upload)
+-- ==========================
 
--- Get all screenshots for a given location
-SELECT 
-    gs.id,
-    gs.file_path,
-    gs.actual_x,
-    gs.actual_y,
-    gs.difficulty,
-    gs.notes
-FROM game_screenshots gs
-JOIN locations l ON gs.location_id = l.id
-WHERE l.name = 'Ruins of Wyveria'
-ORDER BY gs.difficulty, gs.id;
+-- Résolution region_map_id (modèle "nouveau" : on part de region_map_id)
+SELECT id, location_id
+FROM region_maps
+WHERE id = ?;
 
--- Récupérer les localisations qui ont au moins une 
-capture d'écran (pour le jeu)
-SELECT 
-    l.id,
-    l.name,
-    l.x,
-    l.y,
-    l.description,
-    COUNT(gs.id) AS screenshot_count
-FROM locations l
-INNER JOIN game_screenshots gs ON l.id = gs.location_id
-GROUP BY l.id, l.name, l.x, l.y, l.description
-HAVING screenshot_count > 0
-ORDER BY l.name;
+-- Résolution region_map_id (compatibilité : on part de location_id, display_order=1)
+SELECT id, location_id
+FROM region_maps
+WHERE location_id = ?
+ORDER BY display_order
+LIMIT 1;
 
--- ==========================================
--- INSERT QUERIES
--- ==========================================
+-- Insertion d'une capture
+-- (image_data = BLOB fournie par l'API)
+INSERT INTO game_screenshots
+  (location_id, region_map_id, image_data, image_type, actual_x, actual_y, difficulty, notes)
+VALUES
+  (?, ?, ?, ?, ?, ?, ?, ?);
 
--- Add a new screenshot
--- Example: for an 800x600px map, center would be (400, 300)
--- INSERT INTO game_screenshots (location_id, file_path, actual_x, actual_y, difficulty, notes)
--- VALUES (
---     (SELECT id FROM locations WHERE name = 'Ruins of Wyveria'),
---     '/screenshots/ruins_wyveria_01.png',
---     400,
---     300,
---     'medium',
---     'Screenshot taken in the central area of the ruins'
--- );
+-- ==========================
+-- Highscores (TOP 50)
+-- ==========================
 
--- Ajouter plusieurs captures d'écran en une seule requête
--- INSERT INTO game_screenshots (location_id, file_path, actual_x, actual_y, difficulty) VALUES
--- ((SELECT id FROM locations WHERE name = 'Iceshard Cliffs'), '/screenshots/iceshard_01.png', 400, 300, 'easy'),
--- ((SELECT id FROM locations WHERE name = 'Iceshard Cliffs'), '/screenshots/iceshard_02.png', 500, 350, 'medium'),
--- ((SELECT id FROM locations WHERE name = 'Iceshard Cliffs'), '/screenshots/iceshard_03.png', 350, 250, 'hard');
+-- GET /api/highscores (Top 50)
+SELECT pseudo, score, created_at
+FROM high_scores
+ORDER BY score DESC, created_at DESC, id DESC
+LIMIT 50;
 
--- ==========================================
--- UPDATE QUERIES
--- ==========================================
+-- GET /api/highscores/eligible?score=...
+SELECT
+  (SELECT COUNT(*) FROM high_scores) AS total,
+  (SELECT MIN(score) FROM (
+     SELECT score
+     FROM high_scores
+     ORDER BY score DESC, created_at DESC, id DESC
+     LIMIT 50
+   ) t) AS cutoff_score;
 
--- Update actual coordinates of a screenshot
--- UPDATE game_screenshots 
--- SET actual_x = 450, actual_y = 320
--- WHERE id = 1;
+-- POST /api/highscores (insertion)
+INSERT INTO high_scores (pseudo, score)
+VALUES (?, ?);
 
--- Mettre à jour la difficulté d'une capture d'écran
--- UPDATE game_screenshots 
--- SET difficulty = 'hard'
--- WHERE id = 1;
-
--- ==========================================
--- STATISTICS QUERIES
--- ==========================================
-
--- Statistics by location
-SELECT 
-    l.name AS location,
-    COUNT(DISTINCT rm.id) AS map_count,
-    COUNT(DISTINCT gs.id) AS screenshot_count,
-    COUNT(DISTINCT CASE WHEN gs.difficulty = 'easy' THEN gs.id END) AS easy_screenshots,
-    COUNT(DISTINCT CASE WHEN gs.difficulty = 'medium' THEN gs.id END) AS medium_screenshots,
-    COUNT(DISTINCT CASE WHEN gs.difficulty = 'hard' THEN gs.id END) AS hard_screenshots
-FROM locations l
-LEFT JOIN region_maps rm ON l.id = rm.location_id
-LEFT JOIN game_screenshots gs ON l.id = gs.location_id
-GROUP BY l.id, l.name
-ORDER BY screenshot_count DESC;
-
--- Statistiques globales
-SELECT 
-    COUNT(DISTINCT l.id) AS total_locations,
-    COUNT(DISTINCT rm.id) AS total_region_maps,
-    COUNT(DISTINCT gs.id) AS total_screenshots,
-    COUNT(DISTINCT CASE WHEN gs.difficulty = 'easy' THEN gs.id END) AS total_easy,
-    COUNT(DISTINCT CASE WHEN gs.difficulty = 'medium' THEN gs.id END) AS total_medium,
-    COUNT(DISTINCT CASE WHEN gs.difficulty = 'hard' THEN gs.id END) AS total_hard
-FROM locations l
-LEFT JOIN region_maps rm ON l.id = rm.location_id
-LEFT JOIN game_screenshots gs ON l.id = gs.location_id;
-
--- ==========================================
--- DELETE QUERIES
--- ==========================================
-
--- Delete a specific screenshot
--- DELETE FROM game_screenshots WHERE id = 1;
-
--- Delete all screenshots from a location
--- DELETE FROM game_screenshots 
--- WHERE location_id = (SELECT id FROM locations WHERE name = 'Ruins of Wyveria');
-
--- Supprimer une localisation et toutes ses données associées (grâce à CASCADE)
--- DELETE FROM locations WHERE name = 'Location Name';
+-- Nettoyage TOP 50 (côté application après insertion, pour éviter les problèmes de triggers)
+DELETE FROM high_scores
+WHERE id NOT IN (
+  SELECT id FROM (
+    SELECT id
+    FROM high_scores
+    ORDER BY score DESC, created_at DESC, id DESC
+    LIMIT 50
+  ) t
+);

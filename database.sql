@@ -32,15 +32,18 @@ CREATE TABLE region_maps (
 CREATE TABLE game_screenshots (
     id INT PRIMARY KEY AUTO_INCREMENT,
     location_id INT NOT NULL,
+    region_map_id INT NOT NULL COMMENT 'ID de la region_map correspondante (définit le repère des coordonnées)',
     image_data LONGBLOB NOT NULL COMMENT 'Données binaires de l\'image',
     image_type VARCHAR(10) DEFAULT 'png' COMMENT 'Format: png, jpg, jpeg, webp',
-    actual_x INT NOT NULL COMMENT 'Coordonnée X réelle sur la carte de région (en pixels)',
-    actual_y INT NOT NULL COMMENT 'Coordonnée Y réelle sur la carte de région (en pixels)',
+    actual_x INT NOT NULL COMMENT 'Coordonnée X réelle sur la région_map (en pixels)',
+    actual_y INT NOT NULL COMMENT 'Coordonnée Y réelle sur la région_map (en pixels)',
     difficulty ENUM('easy', 'medium', 'hard') DEFAULT 'medium' COMMENT 'Niveau de difficulté',
     notes TEXT COMMENT 'Notes additionnelles',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE,
+    FOREIGN KEY (region_map_id) REFERENCES region_maps(id) ON DELETE CASCADE,
     INDEX idx_location (location_id),
+    INDEX idx_region_map (region_map_id),
     INDEX idx_difficulty (difficulty)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -103,6 +106,15 @@ SELECT
 FROM locations l
 LEFT JOIN game_screenshots gs ON l.id = gs.location_id
 GROUP BY l.id, l.name, l.x, l.y, l.description;
+
+-- Table Highscores (TOP 50 conservé côté application)
+CREATE TABLE IF NOT EXISTS high_scores (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    pseudo VARCHAR(32) NOT NULL,
+    score INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_score_created (score, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Requête exemple pour récupérer une capture d'écran aléatoire avec sa localisation
 -- SELECT 

@@ -81,22 +81,19 @@ Les captures sont stockées **uniquement en base de données** (pas de fichiers 
 ```bash
 curl -X POST http://localhost:3000/api/screenshots \
   -F "image=@/chemin/vers/capture.png" \
-  -F "location_id=1" \
+  -F "region_map_id=12" \
   -F "actual_x=400" \
   -F "actual_y=300" \
   -F "difficulty=medium"
 ```
 
-- **location_id** : ID de la localisation (voir `SELECT id, name FROM locations`)
-- **actual_x, actual_y** : coordonnées réelles sur la carte de région (en pixels)
+- **region_map_id** : ID de la region_map (voir `SELECT id, file_path FROM region_maps`)
+- **actual_x, actual_y** : coordonnées réelles sur l'image de la region_map (en pixels)
 - **difficulty** : `easy`, `medium` ou `hard` (optionnel)
 
 ### Migration d'une base existante
 
-Si vous aviez des captures avec `file_path`, exécutez :
-```bash
-mysql -u root monster_hunter_geoguesser < database_migration_screenshots_blob.sql
-```
-Puis ré-importez les captures via l'API ci-dessus.
+`database.sql` contient désormais le schéma complet (y compris la colonne `region_map_id` et les tables nécessaires).  
+Si tu as déjà une base existante, vérifie que la structure correspond bien (au minimum `game_screenshots.region_map_id` et la table `high_scores`), puis ré-ajuste/import si nécessaire via l’API.
 
 Bonne chasse et explorez bien les terres sauvages! 🌟

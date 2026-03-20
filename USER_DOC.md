@@ -81,7 +81,8 @@ Le système utilise deux types d’images :
 
 2. Cartes de régions (`public/maps/*.png`) :
    - Les chemin(s) des cartes de région sont stockés dans `region_maps.file_path`.
-   - Les coordonnées réelles du marqueur (vrai emplacement) sont stockées en pixels dans `game_screenshots.actual_x` et `game_screenshots.actual_y`.
+   - Chaque capture d’écran est associée à une entrée précise de `region_maps` via `game_screenshots.region_map_id`.
+   - Les coordonnées réelles du marqueur (vrai emplacement) sont stockées en pixels dans `game_screenshots.actual_x` et `game_screenshots.actual_y`, **dans le repère de l’image de la region_map**.
 
 ## Backend : API utilisée par le jeu
 
@@ -115,9 +116,9 @@ Le système utilise deux types d’images :
 
 - Requiert un `multipart/form-data` avec :
   - `image` (fichier image)
-  - `location_id` (int)
-  - `actual_x` (int, coordonnées réelles en pixels sur l’image de région)
-  - `actual_y` (int, coordonnées réelles en pixels sur l’image de région)
+  - `region_map_id` (int) : clé de la région_map (voir `region_maps.id`)
+  - `actual_x` (int, coordonnées réelles en pixels sur l’image de la region_map)
+  - `actual_y` (int, coordonnées réelles en pixels sur l’image de la region_map)
   - `difficulty` (optionnel : `easy`, `medium`, `hard`)
   - `notes` (optionnel)
 
@@ -126,7 +127,7 @@ Exemple :
 ```bash
 curl -X POST http://localhost:3000/api/screenshots \
   -F "image=@/chemin/vers/capture.png" \
-  -F "location_id=1" \
+  -F "region_map_id=12" \
   -F "actual_x=400" \
   -F "actual_y=300" \
   -F "difficulty=medium"
@@ -136,6 +137,23 @@ Notes :
 
 - Le serveur accepte `png`, `jpg`, `jpeg`, `webp`. Sinon, il stocke comme `png`.
 - Les captures sont stockées en base (champ `game_screenshots.image_data`) : le dossier `public/screenshots/` n'est pas utilisé pour les données du jeu.
+
+### Récupérer un `region_map_id`
+```sql
+SELECT
+  rm.id,
+  l.name AS location_name,
+  rm.display_order,
+  rm.file_path
+FROM region_maps rm
+JOIN locations l ON l.id = rm.location_id
+ORDER BY l.name, rm.display_order;
+```
+
+### Migration d'une base existante
+
+`database.sql` contient désormais le schéma complet (y compris `game_screenshots.region_map_id`).  
+Si ta base a déjà des captures, vérifie que la structure correspond bien et adapte/import si nécessaire via l’API.
 
 ## Structure de la base de données
 
@@ -150,8 +168,8 @@ Le fichier `database.sql` crée :
    - Sert à afficher la carte de région correspondante à la localisation.
 
 3. `game_screenshots`
-   - `location_id`, `image_data` (BLOB), `image_type`
-   - `actual_x`, `actual_y` (coordonnées réelles en pixels sur la carte de région)
+   - `location_id`, `region_map_id`, `image_data` (BLOB), `image_type`
+   - `actual_x`, `actual_y` (coordonnées réelles en pixels sur l’image de la region_map)
    - `difficulty`, `notes`
 
 ## Dépannage rapide
