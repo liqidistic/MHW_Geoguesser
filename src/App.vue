@@ -82,29 +82,32 @@
 
         <!-- Vue carte de région -->
         <div v-show="!showMainMap" class="location-image-view">
-          <div
-            class="map-zoom-wrapper region-zoom-wrapper"
-            :class="{ 'region-pan-active': regionIsPanning }"
-            :style="{ transform: `translate(${regionPanX}px, ${regionPanY}px) scale(${regionZoom})` }"
-          >
-            <div style="position: relative; display: inline-block;">
-              <img 
-                ref="locationDetailImage"
-                :src="currentLocationImage"
-                alt="Image de la localisation"
-                class="location-detail-image"
-                @load="onRegionImageLoad"
-              />
-              <canvas 
-                ref="regionMapOverlay"
-                class="region-map-overlay"
-                @click="handleRegionMapClick"
-                @dblclick="handleRegionMapDoubleClick"
-                @pointerdown="handleRegionPointerDown"
-              ></canvas>
-              <div v-if="markerPlaced" class="coordinates-display">
-                X: {{ Math.round(markerX) }}, Y: {{ Math.round(markerY) }}
+          <!-- Le panneau coordonnées est hors du transform (zoom/pan) : sinon overflow:hidden le rogne -->
+          <div class="region-map-viewport">
+            <div
+              class="map-zoom-wrapper region-zoom-wrapper"
+              :class="{ 'region-pan-active': regionIsPanning }"
+              :style="{ transform: `translate(${regionPanX}px, ${regionPanY}px) scale(${regionZoom})` }"
+            >
+              <div style="position: relative; display: inline-block;">
+                <img 
+                  ref="locationDetailImage"
+                  :src="currentLocationImage"
+                  alt="Image de la localisation"
+                  class="location-detail-image"
+                  @load="onRegionImageLoad"
+                />
+                <canvas 
+                  ref="regionMapOverlay"
+                  class="region-map-overlay"
+                  @click="handleRegionMapClick"
+                  @dblclick="handleRegionMapDoubleClick"
+                  @pointerdown="handleRegionPointerDown"
+                ></canvas>
               </div>
+            </div>
+            <div v-if="markerPlaced" class="coordinates-display">
+              X: {{ Math.round(markerX) }}, Y: {{ Math.round(markerY) }}
             </div>
           </div>
           <div class="region-controls-panel">
@@ -300,6 +303,9 @@ const gameOver = ref(false);
 const showWelcomeScreen = ref(true);
 const locations = ref([]);
 const apiError = ref(null);
+
+// Captures déjà utilisées dans la partie en cours (évite les doublons)
+const usedScreenshotIdsInGame = ref([]);
 
 // Highscores
 const showHighscoresModal = ref(false);
@@ -934,24 +940,45 @@ const loadRandomLocation = async () => {
   try {
     apiError.value = null;
     loading.value = true;
-    const response = await fetch('/api/screenshots/random');
-    
+    const params = new URLSearchParams();
+    if (usedScreenshotIdsInGame.value.length > 0) {
+      params.set('exclude', usedScreenshotIdsInGame.value.join(','));
+    }
+    const qs = params.toString();
+    const response = await fetch(`/api/screenshots/random${qs ? `?${qs}` : ''}`);
+
     if (!response.ok) {
       if (response.status === 404) {
         currentGameImage.value = '';
         loading.value = false;
-        apiError.value = 'Aucune capture d\'écran disponible dans la base de données';
+        let errBody = {};
+        try {
+          errBody = await response.json();
+        } catch {
+          /* ignore */
+        }
+        if (errBody.code === 'no_unused_screenshots') {
+          apiError.value =
+            'Plus assez de captures distinctes pour continuer la partie (toutes ont déjà été utilisées). Ajoutez des captures ou réduisez le nombre de rounds.';
+        } else {
+          apiError.value = 'Aucune capture d\'écran disponible dans la base de données';
+        }
         // On ne met pas de "placeholder" : l'interface doit simplement afficher l'erreur.
         currentLocation.value = null;
         return;
       }
       throw new Error('Failed to load random screenshot');
     }
-    
+
     const data = await response.json();
-    
+
+    if (data.screenshot_id != null) {
+      usedScreenshotIdsInGame.value = [...usedScreenshotIdsInGame.value, data.screenshot_id];
+    }
+
     // Transformer les données de l'API en format compatible avec l'app
     currentLocation.value = {
+      screenshot_id: data.screenshot_id,
       id: data.location_id,
       name: data.location_name,
       x: data.map_x,
@@ -1056,6 +1083,7 @@ const startGame = () => {
 
 // Démarre une nouvelle partie
 const startNewGame = () => {
+  usedScreenshotIdsInGame.value = [];
   currentRound.value = 1;
   totalScore.value = 0;
   roundResults.value = [];
@@ -1071,6 +1099,7 @@ const startNewGame = () => {
 };
 
 const returnToAccueil = () => {
+  usedScreenshotIdsInGame.value = [];
   // Réaffiche l'écran d'accueil et ferme tout état de fin de partie
   showWelcomeScreen.value = true;
   showGameOverModal.value = false;

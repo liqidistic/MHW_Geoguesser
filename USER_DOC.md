@@ -24,19 +24,21 @@ Tu joues au total sur `5` rounds (voir `CONFIG.totalRounds` dans `src/App.vue`).
 npm install
 ```
 
-2. Préparer la base MySQL :
-
-- Crée la base (à adapter si nécessaire) :
+2. Importer la base MySQL en **une seule commande**. Les scripts **`monster_hunter_geoguesser.sql`** et **`monster_hunter_geoguesser_light.sql`** commencent tous les deux par **`CREATE DATABASE IF NOT EXISTS`** puis **`USE`**, puis créent les tables ; seul le fichier **complet** inclut les **BLOB** des captures.
 
 ```bash
-mysql -u root -e "CREATE DATABASE IF NOT EXISTS monster_hunter_geoguesser;"
+mysql -u root < monster_hunter_geoguesser.sql
 ```
 
-- Importer le schéma et les données de base :
+*(Avec mot de passe sur `root` : `mysql -u root -p < monster_hunter_geoguesser.sql`.)*
+
+**Version légère** (même principe d’import, un seul fichier) :
 
 ```bash
-mysql -u root monster_hunter_geoguesser < database.sql
+mysql -u root < monster_hunter_geoguesser_light.sql
 ```
+
+`monster_hunter_geoguesser_light.sql` ne remplit pas `game_screenshots` avec des images : ajoute les captures via `POST /api/screenshots` ou utilise le dump complet.
 
 3. Démarrer les deux serveurs (deux terminaux) :
 
@@ -152,12 +154,12 @@ ORDER BY l.name, rm.display_order;
 
 ### Migration d'une base existante
 
-`database.sql` contient désormais le schéma complet (y compris `game_screenshots.region_map_id`).  
-Si ta base a déjà des captures, vérifie que la structure correspond bien et adapte/import si nécessaire via l’API.
+Pour une base à jour **avec toutes les données** : réimporte **`monster_hunter_geoguesser.sql`**.  
+**`monster_hunter_geoguesser_light.sql`** sert de **référence de schéma** ou d’install minimale sans BLOB. Si ta base existante a déjà des captures, vérifie la structure puis adapte ou complète via l’API.
 
 ## Structure de la base de données
 
-Le fichier `database.sql` crée :
+Les scripts SQL décrivent / créent notamment :
 
 1. `locations`
    - `id`, `name`, `x`, `y`, `description`
@@ -182,5 +184,5 @@ Le fichier `database.sql` crée :
    - Vérifie `GET /api/locations` (erreur backend ou base non initialisée).
 
 3. Le jeu affiche “Aucune capture d'écran disponible…”
-   - Ajoute des captures via `POST /api/screenshots` (les captures sont requises pour `GET /api/screenshots/random`).
+   - Avec **`monster_hunter_geoguesser_light.sql`**, la table peut être vide de captures : importe **`monster_hunter_geoguesser.sql`** ou ajoute des captures via `POST /api/screenshots`.
 

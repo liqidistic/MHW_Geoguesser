@@ -12,11 +12,14 @@ Un jeu de géolocalisation inspiré de Geoguessr, mais adapté pour la carte du 
 npm install
 ```
 
-2. Créez la base de données MySQL :
+2. Importez la base MySQL (**un seul fichier** suffit : chaque script contient `CREATE DATABASE IF NOT EXISTS`, `USE`, puis tables et données) :
 ```bash
-mysql -u root -e "CREATE DATABASE IF NOT EXISTS monster_hunter_geoguesser;"
-mysql -u root monster_hunter_geoguesser < database.sql
+mysql -u root < monster_hunter_geoguesser.sql
 ```
+*(Si le compte `root` a un mot de passe : `mysql -u root -p < monster_hunter_geoguesser.sql`.)*
+
+- **`monster_hunter_geoguesser.sql`** : base **complète**, y compris les captures en BLOB.
+- **`monster_hunter_geoguesser_light.sql`** : même principe (**un import**), mais **sans** données lourdes dans `game_screenshots` (schéma + localisations / cartes ; tu complètes les captures via l’API si besoin).
 
 3. Dans un premier terminal, lancez le serveur backend :
 ```bash
@@ -62,7 +65,8 @@ npm run build
 ├── public/
 │   ├── map.png          # Carte principale
 │   └── maps/            # Cartes de régions
-├── database.sql         # Script de création de la base de données
+├── monster_hunter_geoguesser.sql       # Import complet (CREATE DATABASE + données + BLOB)
+├── monster_hunter_geoguesser_light.sql   # Import léger (CREATE DATABASE + schéma, sans BLOB)
 ├── package.json
 └── vite.config.js
 ```
@@ -71,7 +75,7 @@ npm run build
 
 Assurez-vous d'avoir :
 - MySQL installé et en cours d'exécution
-- La base de données créée et initialisée avec `database.sql`
+- La base importée avec `monster_hunter_geoguesser.sql` (ou `monster_hunter_geoguesser_light.sql` sans captures en base)
 - Les cartes de régions dans le dossier `public/maps/`
 
 ## 📸 Ajouter des captures d'écran
@@ -91,9 +95,10 @@ curl -X POST http://localhost:3000/api/screenshots \
 - **actual_x, actual_y** : coordonnées réelles sur l'image de la region_map (en pixels)
 - **difficulty** : `easy`, `medium` ou `hard` (optionnel)
 
+Pour tirer une capture **sans répéter** des IDs déjà utilisés dans la partie, l’API `GET /api/screenshots/random` accepte un paramètre optionnel `exclude` (liste d’IDs séparés par des virgules), par ex. `?exclude=3,7,12`.
+
 ### Migration d'une base existante
 
-`database.sql` contient désormais le schéma complet (y compris la colonne `region_map_id` et les tables nécessaires).  
-Si tu as déjà une base existante, vérifie que la structure correspond bien (au minimum `game_screenshots.region_map_id` et la table `high_scores`), puis ré-ajuste/import si nécessaire via l’API.
+Pour repartir de zéro avec le jeu complet : réimporte **`monster_hunter_geoguesser.sql`**.  
+Pour une base légère ou la référence de schéma sans BLOB : **`monster_hunter_geoguesser_light.sql`**. Si tu as déjà des captures, vérifie la structure (`region_map_id`, `high_scores`, etc.) puis complète via l’API si besoin.
 
-Bonne chasse et explorez bien les terres sauvages! 🌟

@@ -80,9 +80,20 @@ app.get('/api/screenshots/:id/image', async (req, res) => {
 });
 
 // Récupère une capture aléatoire avec infos de localisation
+// Query optionnelle : exclude=1,2,3 (IDs de captures déjà utilisées dans la partie)
 app.get('/api/screenshots/random', async (req, res) => {
   try {
-    const [screenshots] = await db.query(`
+    const excludeRaw = req.query.exclude;
+    let excludeIds = [];
+    if (typeof excludeRaw === 'string' && excludeRaw.trim()) {
+      excludeIds = excludeRaw
+        .split(',')
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => Number.isInteger(n) && n > 0);
+    }
+    excludeIds = [...new Set(excludeIds)];
+
+    const sql = `
       SELECT
         gs.id AS screenshot_id,
         gs.actual_x,
@@ -127,12 +138,28 @@ app.get('/api/screenshots/random', async (req, res) => {
       FROM game_screenshots gs
       JOIN locations l ON gs.location_id = l.id
       WHERE gs.image_data IS NOT NULL
+      ${excludeIds.length > 0 ? `AND gs.id NOT IN (${excludeIds.map(() => '?').join(',')})` : ''}
       ORDER BY RAND()
       LIMIT 1
-    `);
-    
+    `;
+
+    const params = excludeIds.length > 0 ? excludeIds : [];
+    const [screenshots] = await db.query(sql, params);
+
     if (screenshots.length === 0) {
-      return res.status(404).json({ error: 'No screenshots available' });
+      if (excludeIds.length > 0) {
+        const [[{ total }]] = await db.query(
+          'SELECT COUNT(*) AS total FROM game_screenshots WHERE image_data IS NOT NULL'
+        );
+        if (total === 0) {
+          return res.status(404).json({ error: 'No screenshots available', code: 'no_screenshots' });
+        }
+        return res.status(404).json({
+          error: 'All screenshots already used in this game',
+          code: 'no_unused_screenshots',
+        });
+      }
+      return res.status(404).json({ error: 'No screenshots available', code: 'no_screenshots' });
     }
     
     const screenshot = screenshots[0];

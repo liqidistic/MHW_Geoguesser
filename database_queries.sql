@@ -68,6 +68,7 @@ WHERE id = ?;
 -- ==========================
 
 -- GET /api/screenshots/random (une capture aléatoire + info localisation + region_map associée)
+-- Optionnel : ?exclude=1,2,3 pour exclure des IDs déjà utilisés dans la partie
 SELECT
   gs.id AS screenshot_id,
   gs.actual_x,
@@ -103,6 +104,7 @@ SELECT
 FROM game_screenshots gs
 JOIN locations l ON gs.location_id = l.id
 WHERE gs.image_data IS NOT NULL
+  -- AND gs.id NOT IN (?, ?, ?)   -- si exclude fourni
 ORDER BY RAND()
 LIMIT 1;
 
