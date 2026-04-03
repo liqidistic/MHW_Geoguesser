@@ -248,7 +248,7 @@ app.post('/api/screenshots', upload.single('image'), async (req, res) => {
 app.get('/api/highscores', async (req, res) => {
   try {
     const [rows] = await db.query(
-      'SELECT pseudo, score, created_at FROM high_scores ORDER BY score DESC, created_at DESC, id DESC LIMIT 50'
+      'SELECT pseudo, score, total_time_remaining_seconds, created_at FROM high_scores ORDER BY score DESC, created_at DESC, id DESC LIMIT 50'
     );
     res.json(rows);
   } catch (error) {
@@ -290,8 +290,10 @@ app.post('/api/highscores', async (req, res) => {
   try {
     const pseudoRaw = req.body?.pseudo;
     const scoreRaw = req.body?.score;
+    const totalTimeRemainingSecondsRaw = req.body?.totalTimeRemainingSeconds;
     const pseudo = typeof pseudoRaw === 'string' ? pseudoRaw.trim() : '';
     const score = parseInt(scoreRaw, 10);
+    let totalTimeRemainingSeconds = parseInt(totalTimeRemainingSecondsRaw, 10);
 
     if (!pseudo || pseudo.length < 1) {
       return res.status(400).json({ error: 'pseudo is required' });
@@ -301,6 +303,9 @@ app.post('/api/highscores', async (req, res) => {
     }
     if (Number.isNaN(score)) {
       return res.status(400).json({ error: 'score must be an integer' });
+    }
+    if (Number.isNaN(totalTimeRemainingSeconds) || totalTimeRemainingSeconds < 0) {
+      totalTimeRemainingSeconds = 0;
     }
 
     const [rows] = await db.query(`
@@ -323,8 +328,8 @@ app.post('/api/highscores', async (req, res) => {
     }
 
     const [result] = await db.query(
-      'INSERT INTO high_scores (pseudo, score) VALUES (?, ?)',
-      [pseudo, score]
+      'INSERT INTO high_scores (pseudo, score, total_time_remaining_seconds) VALUES (?, ?, ?)',
+      [pseudo, score, totalTimeRemainingSeconds]
     );
 
     // Nettoyage TOP 50 côté application pour éviter les contraintes MySQL liées aux triggers.

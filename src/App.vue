@@ -133,9 +133,6 @@
               <span class="control-icon">↶</span>
               <span class="control-text">Retour</span>
             </button>
-            <div v-if="currentViewedLocation?.images.length > 1" class="image-counter-card">
-              {{ currentLocationImageIndex + 1 }} / {{ currentViewedLocation?.images.length }}
-            </div>
           </div>
         </div>
       </div>
@@ -144,19 +141,23 @@
     <div class="controls">
       <div class="score-info">
         <div class="score-item">
-          <span class="label">Round:</span>
-          <span>{{ currentRound }}</span> / <span>{{ CONFIG.totalRounds }}</span>
-        </div>
-        <div class="score-item">
           <span class="label">Score:</span>
           <span>{{ totalScore }}</span>
+        </div>
+        <div class="score-item" :class="{ 'countdown-warning': roundCountdownSeconds <= 10 && !roundTimeExpired }">
+          <span class="label">Temps:</span>
+          <span>{{ roundCountdownSeconds }}s</span>
+        </div>
+        <div class="score-item">
+          <span class="label">Round:</span>
+          <span>{{ currentRound }}</span> / <span>{{ CONFIG.totalRounds }}</span>
         </div>
       </div>
 
       <div class="buttons">
         <button 
           class="btn btn-primary" 
-          :disabled="!markerPlaced"
+          :disabled="!markerPlaced || roundResolved"
           @click="makeGuess"
         >
           Faire une supposition
@@ -253,6 +254,7 @@
               >
                 <span>#{{ idx + 1 }} {{ h.pseudo }}</span>
                 <span>{{ h.score }} pts</span>
+                <span>{{ formatHighscoreTime(h.total_time_remaining_seconds) }}</span>
               </div>
             </div>
           </div>
@@ -281,6 +283,8 @@ const CONFIG = {
   totalRounds: 5,
 };
 
+const ROUND_TIME_SECONDS = 30;
+
 // État réactif
 const currentRound = ref(1);
 const totalScore = ref(0);
@@ -303,6 +307,18 @@ const gameOver = ref(false);
 const showWelcomeScreen = ref(true);
 const locations = ref([]);
 const apiError = ref(null);
+
+// Compte à rebours (réinitialisé à chaque round)
+const roundCountdownSeconds = ref(ROUND_TIME_SECONDS);
+const roundTimeExpired = ref(false);
+const roundResolved = ref(false);
+let roundCountdownIntervalId = null;
+let roundCountdownEndsAtMs = 0;
+
+// Total du temps restant (somme des secondes restantes lors de chaque validation de round)
+const totalTimeRemainingSeconds = computed(() =>
+  roundResults.value.reduce((sum, r) => sum + (r.timeRemainingSeconds ?? 0), 0)
+);
 
 // Captures déjà utilisées dans la partie en cours (évite les doublons)
 const usedScreenshotIdsInGame = ref([]);
@@ -386,6 +402,13 @@ const resultMessage = computed(() => {
   return `Vous étiez à ${Math.round(distance.value)}px de la vraie localisation.`;
 });
 
+const formatHighscoreTime = (secondsRaw) => {
+  const totalSeconds = Math.max(0, parseInt(secondsRaw ?? 0, 10) || 0);
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `⏱ ${m}:${String(s).padStart(2, '0')}`;
+};
+
 // Fonctions utilitaires
 const calculateDistance = (x1, y1, x2, y2) => {
   return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
@@ -395,6 +418,67 @@ const distanceToScore = (distance, maxDistance) => {
   if (distance === 0) return 5000;
   const normalizedDistance = distance / maxDistance;
   return Math.max(0, Math.round(5000 * (1 - normalizedDistance)));
+};
+
+const stopRoundCountdown = () => {
+  if (roundCountdownIntervalId) {
+    clearInterval(roundCountdownIntervalId);
+    roundCountdownIntervalId = null;
+  }
+};
+
+const prepareRoundCountdown = () => {
+  stopRoundCountdown();
+  roundTimeExpired.value = false;
+  roundResolved.value = false;
+  roundCountdownSeconds.value = ROUND_TIME_SECONDS;
+  roundCountdownEndsAtMs = 0;
+};
+
+const handleRoundTimeUp = () => {
+  // Sécurité anti-double déclenchement (race condition avec un clic utilisateur).
+  if (roundResolved.value || showResultModal.value || gameOver.value) return;
+
+  roundResolved.value = true;
+  roundTimeExpired.value = true;
+  stopRoundCountdown();
+
+  // Verrouiller l'interaction "supposition" et compter 0 point.
+  markerPlaced.value = false;
+  distance.value = null;
+  lastRoundIsCorrect.value = false;
+  lastRoundCorrectZoneName.value = '';
+  lastRoundScore.value = 0;
+
+  roundResults.value.push({
+    location: currentLocation.value?.name ?? 'Inconnu',
+    distance: null,
+    score: 0,
+    timeRemainingSeconds: 0,
+    round: currentRound.value,
+  });
+
+  // Afficher ce qui est disponible (la révélation complète est volontairement limitée
+  // par showActualLocation, comme pour les mauvaises réponses).
+  showActualLocation();
+  showResultModal.value = true;
+};
+
+const startRoundCountdown = () => {
+  stopRoundCountdown();
+  roundCountdownEndsAtMs = Date.now() + ROUND_TIME_SECONDS * 1000;
+
+  roundCountdownIntervalId = window.setInterval(() => {
+    if (roundResolved.value) return;
+
+    const msLeft = roundCountdownEndsAtMs - Date.now();
+    const secondsLeft = Math.max(0, Math.ceil(msLeft / 1000));
+    roundCountdownSeconds.value = secondsLeft;
+
+    if (msLeft <= 0) {
+      handleRoundTimeUp();
+    }
+  }, 250);
 };
 
 // Dessine les localisations sur la carte
@@ -808,7 +892,16 @@ const showActualLocation = () => {
 
 // Fait une supposition
 const makeGuess = () => {
+  if (roundResolved.value) return;
   if (!markerPlaced.value || !currentLocation.value || !regionMapOverlay.value) return;
+
+  // Verrouiller le round dès que l'utilisateur valide.
+  roundResolved.value = true;
+  roundTimeExpired.value = false;
+  stopRoundCountdown();
+
+  // Temps restant au moment où le joueur valide sa réponse.
+  const temps_restant = Math.max(0, roundCountdownSeconds.value);
 
   const maxDistance = Math.sqrt(
     Math.pow(regionMapOverlay.value.width, 2) +
@@ -838,7 +931,8 @@ const makeGuess = () => {
       currentLocation.value.actual_x,
       currentLocation.value.actual_y
     );
-    score = distanceToScore(dist, maxDistance);
+    const score_distance = distanceToScore(dist, maxDistance);
+    score = score_distance + (temps_restant * 50);
   }
   
   totalScore.value += score;
@@ -849,6 +943,7 @@ const makeGuess = () => {
     location: currentLocation.value.name,
     distance: Math.round(dist),
     score: score,
+    timeRemainingSeconds: temps_restant,
     round: currentRound.value,
   });
 
@@ -857,7 +952,7 @@ const makeGuess = () => {
 };
 
 // Passe au round suivant
-const nextRound = () => {
+const nextRound = async () => {
   if (currentRound.value >= CONFIG.totalRounds) {
     endGame();
     return;
@@ -867,11 +962,18 @@ const nextRound = () => {
   resetMarker();
   showResultModal.value = false;
   backToMap();
-  loadRandomLocation();
+
+  prepareRoundCountdown();
+  await loadRandomLocation();
+
+  if (currentLocation.value) {
+    startRoundCountdown();
+  }
 };
 
 // Termine le jeu
 const endGame = async () => {
+  stopRoundCountdown();
   showResultModal.value = false;
   showGameOverModal.value = true;
   gameOver.value = true;
@@ -905,7 +1007,7 @@ const closeResultModal = async () => {
     await endGame();
     return;
   }
-  nextRound();
+  await nextRound();
 };
 
 // Localisations de secours si l'API est indisponible
@@ -1057,7 +1159,11 @@ const saveHighscore = async () => {
     const response = await fetch('/api/highscores', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pseudo, score: totalScore.value }),
+      body: JSON.stringify({
+        pseudo,
+        score: totalScore.value,
+        totalTimeRemainingSeconds: totalTimeRemainingSeconds.value,
+      }),
     });
     const data = await response.json();
     if (response.ok && data.inserted) {
@@ -1082,7 +1188,7 @@ const startGame = () => {
 };
 
 // Démarre une nouvelle partie
-const startNewGame = () => {
+const startNewGame = async () => {
   usedScreenshotIdsInGame.value = [];
   currentRound.value = 1;
   totalScore.value = 0;
@@ -1090,12 +1196,16 @@ const startNewGame = () => {
   gameOver.value = false;
   showGameOverModal.value = false;
   showResultModal.value = false;
+  prepareRoundCountdown();
   showHighscorePrompt.value = false;
   highscorePseudo.value = '';
   showHighscoresModal.value = false;
   resetMarker();
   backToMap();
-  loadRandomLocation();
+  await loadRandomLocation();
+  if (currentLocation.value) {
+    startRoundCountdown();
+  }
 };
 
 const returnToAccueil = () => {
@@ -1108,6 +1218,11 @@ const returnToAccueil = () => {
   showHighscoresModal.value = false;
   gameOver.value = false;
   highscorePseudo.value = '';
+
+  stopRoundCountdown();
+  roundTimeExpired.value = false;
+  roundResolved.value = false;
+  roundCountdownSeconds.value = ROUND_TIME_SECONDS;
 
   // Stop confetti si actif
   if (confettiRafId) cancelAnimationFrame(confettiRafId);
@@ -1261,6 +1376,8 @@ onUnmounted(() => {
 
   if (confettiRafId) cancelAnimationFrame(confettiRafId);
   if (confettiTimeoutId) clearTimeout(confettiTimeoutId);
+
+  stopRoundCountdown();
 });
 
 // Watch pour réinitialiser le marqueur quand on change de localisation

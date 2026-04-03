@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS high_scores (
     id INT PRIMARY KEY AUTO_INCREMENT,
     pseudo VARCHAR(32) NOT NULL,
     score INT NOT NULL,
+    total_time_remaining_seconds INT NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_score_created (score, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
