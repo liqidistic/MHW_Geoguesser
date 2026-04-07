@@ -88,10 +88,16 @@ echo "=== Import SQL : $SQL_PATH ==="
 mysql monster_hunter_geoguesser <"$SQL_PATH"
 
 echo "=== Build frontend + deps ==="
+# www-data a souvent HOME=/var/www ; un npm lancé en root y laisse un cache propriétaire root → EACCES
+if [[ -d /var/www/.npm ]]; then
+  chown -R www-data:www-data /var/www/.npm
+fi
 chown -R www-data:www-data "$APP_DIR"
 cd "$APP_DIR"
-sudo -u www-data npm ci
-sudo -u www-data npm run build
+rm -rf node_modules dist
+# Cache + config npm dans le projet (évite /var/www/.npm mélangé avec d’autres apps)
+sudo -u www-data env HOME="$APP_DIR" npm ci
+sudo -u www-data env HOME="$APP_DIR" npm run build
 
 echo "=== Fichier d'environnement API ==="
 umask 077
