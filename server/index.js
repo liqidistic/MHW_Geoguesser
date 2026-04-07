@@ -23,15 +23,48 @@ const db = mysql.createPool({
   queueLimit: 0
 });
 
-// Test database connection
-db.getConnection()
-  .then(connection => {
+// Test database connection + schéma high_scores (bases anciennes / import partiel)
+async function ensureHighScoresSchema() {
+  const dbName = process.env.MYSQL_DATABASE || 'monster_hunter_geoguesser';
+  try {
+    await db.query(`CREATE TABLE IF NOT EXISTS high_scores (
+      id INT PRIMARY KEY AUTO_INCREMENT,
+      pseudo VARCHAR(32) NOT NULL,
+      score INT NOT NULL,
+      total_time_remaining_seconds INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_score_created (score, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    const [cols] = await db.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'high_scores' AND COLUMN_NAME = 'total_time_remaining_seconds'`,
+      [dbName]
+    );
+    if (cols.length === 0) {
+      await db.query(
+        'ALTER TABLE high_scores ADD COLUMN total_time_remaining_seconds INT NOT NULL DEFAULT 0'
+      );
+      console.log('✅ Colonne total_time_remaining_seconds ajoutée à high_scores');
+    }
+  } catch (e) {
+    console.error('❌ ensureHighScoresSchema:', e.message);
+    throw e;
+  }
+}
+
+async function start() {
+  try {
+    const connection = await db.getConnection();
     console.log('✅ Connected to MySQL database');
     connection.release();
-  })
-  .catch(err => {
+    await ensureHighScoresSchema();
+  } catch (err) {
     console.error('❌ Database connection error:', err.message);
+  }
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
   });
+}
 
 // Get all locations with their region maps
 app.get('/api/locations', async (req, res) => {
@@ -332,24 +365,21 @@ app.post('/api/highscores', async (req, res) => {
       [pseudo, score, totalTimeRemainingSeconds]
     );
 
-    // Nettoyage TOP 50 côté application pour éviter les contraintes MySQL liées aux triggers.
-    // On garde les 50 meilleurs (score desc, puis created_at desc, puis id desc).
-    await db.query(`
-      DELETE FROM high_scores
-      WHERE id NOT IN (
-        SELECT id FROM (
-          SELECT id
-          FROM high_scores
-          ORDER BY score DESC, created_at DESC, id DESC
-          LIMIT 50
-        ) t
-      )
-    `);
+    // TOP 50 : suppression sans sous-requête sur la même table (évite erreurs MySQL / MariaDB).
+    const [keepRows] = await db.query(
+      'SELECT id FROM high_scores ORDER BY score DESC, created_at DESC, id DESC LIMIT 50'
+    );
+    const keepIds = keepRows.map((r) => r.id);
+    if (keepIds.length > 0) {
+      const ph = keepIds.map(() => '?').join(',');
+      await db.query(`DELETE FROM high_scores WHERE id NOT IN (${ph})`, keepIds);
+    }
 
     res.json({ inserted: true, eligible: true, id: result.insertId });
   } catch (error) {
-    console.error('Error saving highscore:', error);
-    res.status(500).json({ error: 'Failed to save highscore' });
+    const sqlMsg = error.sqlMessage || error.message;
+    console.error('Error saving highscore:', sqlMsg, error);
+    res.status(500).json({ error: 'Failed to save highscore', detail: sqlMsg });
   }
 });
 
@@ -424,6 +454,4 @@ app.get('/api/locations/with-screenshots', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-});
+start();

@@ -14,6 +14,7 @@
 #   SQL_DUMP        chemin ou nom du dump (défaut : monster_hunter_geoguesser_light.sql)
 #   GIT_BRANCH      branche Git (défaut : master)
 #   SKIP_SQL=1      ne pas réimporter le fichier SQL (réparation, base déjà remplie)
+#   SQL_RESET=1     DROP + CREATE la base puis import complet (efface toutes les données du jeu)
 #   SKIP_CERTBOT=1  ne pas lancer Let’s Encrypt (test HTTP d’abord)
 #   INCLUDE_WWW=0   certificat et vhost pour cratec.fr seulement (si pas d’enregistrement DNS www)
 #
@@ -27,6 +28,7 @@ APP_DIR="${APP_DIR:-/var/www/mhw-geoguesser}"
 CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@cratec.fr}"
 SQL_DUMP="${SQL_DUMP:-monster_hunter_geoguesser_light.sql}"
 SKIP_SQL="${SKIP_SQL:-0}"
+SQL_RESET="${SQL_RESET:-0}"
 SKIP_CERTBOT="${SKIP_CERTBOT:-0}"
 
 if [[ "$INCLUDE_WWW" == "1" ]]; then
@@ -102,14 +104,30 @@ fi
 if [[ "$SKIP_SQL" == "1" ]]; then
   echo "=== SKIP_SQL=1 : import SQL ignoré (la base existante est conservée) ==="
 else
+  if [[ "$SQL_RESET" == "1" ]]; then
+    echo "=== SQL_RESET=1 : recréation de la base (toutes les données monster_hunter_geoguesser sont effacées) ==="
+    mysql --protocol=socket -u root <<'EOSQL'
+DROP DATABASE IF EXISTS monster_hunter_geoguesser;
+CREATE DATABASE monster_hunter_geoguesser CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+GRANT ALL PRIVILEGES ON monster_hunter_geoguesser.* TO 'mhw_app'@'localhost';
+FLUSH PRIVILEGES;
+EOSQL
+  fi
+
   echo "=== Import SQL : $SQL_PATH ==="
   set +e
   mysql monster_hunter_geoguesser <"$SQL_PATH" 2>/tmp/mhw-geoguesser-sql.err
   _sql_st=$?
   set -e
   if [[ "$_sql_st" -ne 0 ]]; then
+    if [[ "$SQL_RESET" == "1" ]]; then
+      echo "=== Échec import SQL après recréation de la base ===" >&2
+      cat /tmp/mhw-geoguesser-sql.err >&2
+      exit 1
+    fi
     if grep -qE 'already exists|\(42S01\)' /tmp/mhw-geoguesser-sql.err; then
-      echo "=== Import SQL partiellement ignoré (schéma/données déjà présents) — poursuite ==="
+      echo "=== ATTENTION : import interrompu dès les CREATE TABLE : les INSERT du fichier SQL n'ont pas été exécutés. ===" >&2
+      echo "=== Réimport complet : SQL_RESET=1 (et SKIP_SQL=0) puis relance ce script. ===" >&2
       tail -5 /tmp/mhw-geoguesser-sql.err || true
     else
       echo "=== Échec import SQL ===" >&2

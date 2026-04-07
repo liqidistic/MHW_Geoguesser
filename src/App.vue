@@ -206,6 +206,13 @@
         </div>
         <div v-if="showHighscorePrompt" class="result-details" style="text-align: left;">
           <h3>Top 50 !</h3>
+          <p
+            v-if="highscoreFeedbackMessage"
+            style="margin-bottom: 10px; color: #c0392b; font-size: 0.95rem;"
+          >
+            {{ highscoreFeedbackMessage }}
+          </p>
+         
           <p style="margin-bottom: 10px;">Ajoutez votre pseudo :</p>
           <input
             v-model="highscorePseudo"
@@ -330,6 +337,7 @@ const highScoresLoading = ref(false);
 const showHighscorePrompt = ref(false);
 const highscorePseudo = ref('');
 const highscoreSaving = ref(false);
+const highscoreFeedbackMessage = ref('');
 const highscoreOpenedFromWelcome = ref(false);
 const currentYear = new Date().getFullYear();
 
@@ -982,6 +990,7 @@ const endGame = async () => {
   showHighscorePrompt.value = false;
   highscorePseudo.value = '';
   highscoreSaving.value = false;
+  highscoreFeedbackMessage.value = '';
 
   try {
     const response = await fetch(`/api/highscores/eligible?score=${totalScore.value}`);
@@ -1148,6 +1157,7 @@ const closeHighscoresModal = () => {
 const closeHighscorePrompt = () => {
   showHighscorePrompt.value = false;
   highscorePseudo.value = '';
+  highscoreFeedbackMessage.value = '';
 };
 
 const saveHighscore = async () => {
@@ -1155,6 +1165,7 @@ const saveHighscore = async () => {
   if (!pseudo) return;
 
   highscoreSaving.value = true;
+  highscoreFeedbackMessage.value = '';
   try {
     const response = await fetch('/api/highscores', {
       method: 'POST',
@@ -1165,17 +1176,26 @@ const saveHighscore = async () => {
         totalTimeRemainingSeconds: totalTimeRemainingSeconds.value,
       }),
     });
-    const data = await response.json();
+    let data = {};
+    try {
+      data = await response.json();
+    } catch {
+      data = {};
+    }
     if (response.ok && data.inserted) {
       closeHighscorePrompt();
       await loadHighscores();
       showHighscoresModal.value = true;
+    } else if (response.ok && data.inserted === false) {
+      highscoreFeedbackMessage.value =
+        'Votre score ne rentre pas dans le top 50 (classement déjà plein ou score trop bas).';
     } else {
-      // Si l'API refuse, on ne garde pas le prompt.
-      closeHighscorePrompt();
+      highscoreFeedbackMessage.value =
+        data.detail || data.error || `Erreur serveur (${response.status}). Réessaie plus tard.`;
     }
   } catch (error) {
     console.error('Error saving highscore:', error);
+    highscoreFeedbackMessage.value = 'Impossible de contacter le serveur. Vérifie ta connexion.';
   } finally {
     highscoreSaving.value = false;
   }
