@@ -17,6 +17,8 @@
 set -euo pipefail
 
 DOMAIN="${DOMAIN:-cratec.fr}"
+# Inclure www pour le même certificat / vhost (évite ERR_SSL_PROTOCOL_ERROR sur www)
+DOMAIN_WWW="www.${DOMAIN}"
 GIT_REPO="${GIT_REPO:-https://github.com/liqidistic/MHW_Geoguesser.git}"
 GIT_BRANCH="${GIT_BRANCH:-master}"
 APP_DIR="${APP_DIR:-/var/www/mhw-geoguesser}"
@@ -74,9 +76,11 @@ fi
 if [[ ! -d "$APP_DIR/.git" ]]; then
   git clone --branch "$GIT_BRANCH" --depth 1 "$GIT_REPO" "$APP_DIR"
 else
-  git -C "$APP_DIR" fetch --depth 1 origin "$GIT_BRANCH"
-  git -C "$APP_DIR" checkout "$GIT_BRANCH"
-  git -C "$APP_DIR" pull --ff-only origin "$GIT_BRANCH"
+  # Le dépôt est en général propriété de www-data ; Git refuse root si safe.directory absent
+  _git() { git -c safe.directory="$APP_DIR" -C "$APP_DIR" "$@"; }
+  _git fetch --depth 1 origin "$GIT_BRANCH"
+  _git checkout "$GIT_BRANCH"
+  _git pull --ff-only origin "$GIT_BRANCH"
 fi
 
 SQL_PATH="$APP_DIR/$SQL_DUMP"
@@ -138,12 +142,13 @@ cat >/etc/nginx/sites-available/mhw-geoguesser <<EOF
 server {
     listen 80;
     listen [::]:80;
-    server_name ${DOMAIN};
+    server_name ${DOMAIN} ${DOMAIN_WWW};
 
     root ${APP_DIR}/dist;
     index index.html;
 
-    location /api/ {
+    # ^~ : toutes les requêtes /api* passent au Node (évite qu’un fichier statique masque l’API)
+    location ^~ /api {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
@@ -166,9 +171,10 @@ systemctl reload nginx
 
 echo "=== Certbot (HTTPS) ==="
 apt-get install -y certbot python3-certbot-nginx
-certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$CERTBOT_EMAIL" --redirect
+certbot --nginx -d "$DOMAIN" -d "$DOMAIN_WWW" --non-interactive --agree-tos -m "$CERTBOT_EMAIL" --redirect
 
 echo "=== Terminé ==="
-echo "Site : https://${DOMAIN}"
+echo "Sites : https://${DOMAIN} et https://${DOMAIN_WWW}"
+echo "DNS : enregistrements A pour @ et www → même IP du VPS (sinon www restera cassé)."
 echo "Mot de passe BDD (copie sécurisée) : fichier $DB_PASS_FILE"
 echo "Logs API : journalctl -u mhw-api -f"
