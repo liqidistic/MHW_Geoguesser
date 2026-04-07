@@ -15,12 +15,12 @@
 #   GIT_BRANCH      branche Git (défaut : master)
 #   SKIP_SQL=1      ne pas réimporter le fichier SQL (réparation, base déjà remplie)
 #   SKIP_CERTBOT=1  ne pas lancer Let’s Encrypt (test HTTP d’abord)
+#   INCLUDE_WWW=0   certificat et vhost pour cratec.fr seulement (si pas d’enregistrement DNS www)
 #
 set -euo pipefail
 
 DOMAIN="${DOMAIN:-cratec.fr}"
-# Inclure www pour le même certificat / vhost (évite ERR_SSL_PROTOCOL_ERROR sur www)
-DOMAIN_WWW="www.${DOMAIN}"
+INCLUDE_WWW="${INCLUDE_WWW:-1}"
 GIT_REPO="${GIT_REPO:-https://github.com/liqidistic/MHW_Geoguesser.git}"
 GIT_BRANCH="${GIT_BRANCH:-master}"
 APP_DIR="${APP_DIR:-/var/www/mhw-geoguesser}"
@@ -28,6 +28,13 @@ CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@cratec.fr}"
 SQL_DUMP="${SQL_DUMP:-monster_hunter_geoguesser_light.sql}"
 SKIP_SQL="${SKIP_SQL:-0}"
 SKIP_CERTBOT="${SKIP_CERTBOT:-0}"
+
+if [[ "$INCLUDE_WWW" == "1" ]]; then
+  NGX_SERVER_NAME="${DOMAIN} www.${DOMAIN}"
+else
+  NGX_SERVER_NAME="${DOMAIN}"
+  echo "INCLUDE_WWW=0 : uniquement ${DOMAIN} (ajoute un A pour www chez IONOS puis INCLUDE_WWW=1 pour étendre le certificat)."
+fi
 
 if [[ "${EUID:-0}" -ne 0 ]]; then
   echo "Lance ce script en root : sudo bash $0" >&2
@@ -96,7 +103,20 @@ if [[ "$SKIP_SQL" == "1" ]]; then
   echo "=== SKIP_SQL=1 : import SQL ignoré (la base existante est conservée) ==="
 else
   echo "=== Import SQL : $SQL_PATH ==="
-  mysql monster_hunter_geoguesser <"$SQL_PATH"
+  set +e
+  mysql monster_hunter_geoguesser <"$SQL_PATH" 2>/tmp/mhw-geoguesser-sql.err
+  _sql_st=$?
+  set -e
+  if [[ "$_sql_st" -ne 0 ]]; then
+    if grep -qE 'already exists|\(42S01\)' /tmp/mhw-geoguesser-sql.err; then
+      echo "=== Import SQL partiellement ignoré (schéma/données déjà présents) — poursuite ==="
+      tail -5 /tmp/mhw-geoguesser-sql.err || true
+    else
+      echo "=== Échec import SQL ===" >&2
+      cat /tmp/mhw-geoguesser-sql.err >&2
+      exit 1
+    fi
+  fi
 fi
 
 echo "=== Build frontend + deps ==="
@@ -151,7 +171,7 @@ cat >/etc/nginx/sites-available/mhw-geoguesser <<EOF
 server {
     listen 80;
     listen [::]:80;
-    server_name ${DOMAIN} ${DOMAIN_WWW};
+    server_name ${NGX_SERVER_NAME};
 
     root ${APP_DIR}/dist;
     index index.html;
@@ -184,11 +204,19 @@ if [[ "$SKIP_CERTBOT" == "1" ]]; then
   echo "SKIP_CERTBOT=1 : pas de Let’s Encrypt. Teste http://${DOMAIN}/ puis relance sans SKIP_CERTBOT."
 else
   apt-get install -y certbot python3-certbot-nginx
-  certbot --nginx -d "$DOMAIN" -d "$DOMAIN_WWW" --non-interactive --agree-tos -m "$CERTBOT_EMAIL" --redirect
+  if [[ "$INCLUDE_WWW" == "1" ]]; then
+    certbot --nginx -d "$DOMAIN" -d "www.$DOMAIN" --non-interactive --agree-tos -m "$CERTBOT_EMAIL" --redirect
+  else
+    certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$CERTBOT_EMAIL" --redirect
+  fi
 fi
 
 echo "=== Terminé ==="
-echo "Sites : https://${DOMAIN} et https://${DOMAIN_WWW} (HTTP seul si SKIP_CERTBOT=1)"
-echo "DNS : enregistrements A pour @ et www → même IP du VPS (sinon www restera cassé)."
+if [[ "$INCLUDE_WWW" == "1" ]]; then
+  echo "Sites : https://${DOMAIN} et https://www.${DOMAIN} (HTTP seul si SKIP_CERTBOT=1)"
+  echo "DNS : A pour @ et www → IP du VPS."
+else
+  echo "Site : https://${DOMAIN} seulement. Pour www : créer l’enregistrement DNS puis INCLUDE_WWW=1 et certbot --nginx -d ${DOMAIN} -d www.${DOMAIN} --expand"
+fi
 echo "Mot de passe BDD (copie sécurisée) : fichier $DB_PASS_FILE"
 echo "Logs API : journalctl -u mhw-api -f"
