@@ -13,6 +13,8 @@
 #   CERTBOT_EMAIL   e-mail Let's Encrypt (défaut : admin@cratec.fr)
 #   SQL_DUMP        chemin ou nom du dump (défaut : monster_hunter_geoguesser_light.sql)
 #   GIT_BRANCH      branche Git (défaut : master)
+#   SKIP_SQL=1      ne pas réimporter le fichier SQL (réparation, base déjà remplie)
+#   SKIP_CERTBOT=1  ne pas lancer Let’s Encrypt (test HTTP d’abord)
 #
 set -euo pipefail
 
@@ -24,6 +26,8 @@ GIT_BRANCH="${GIT_BRANCH:-master}"
 APP_DIR="${APP_DIR:-/var/www/mhw-geoguesser}"
 CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@cratec.fr}"
 SQL_DUMP="${SQL_DUMP:-monster_hunter_geoguesser_light.sql}"
+SKIP_SQL="${SKIP_SQL:-0}"
+SKIP_CERTBOT="${SKIP_CERTBOT:-0}"
 
 if [[ "${EUID:-0}" -ne 0 ]]; then
   echo "Lance ce script en root : sudo bash $0" >&2
@@ -88,8 +92,12 @@ if [[ ! -f "$SQL_PATH" ]]; then
   echo "Fichier SQL introuvable : $SQL_PATH (SQL_DUMP=$SQL_DUMP)" >&2
   exit 1
 fi
-echo "=== Import SQL : $SQL_PATH ==="
-mysql monster_hunter_geoguesser <"$SQL_PATH"
+if [[ "$SKIP_SQL" == "1" ]]; then
+  echo "=== SKIP_SQL=1 : import SQL ignoré (la base existante est conservée) ==="
+else
+  echo "=== Import SQL : $SQL_PATH ==="
+  mysql monster_hunter_geoguesser <"$SQL_PATH"
+fi
 
 echo "=== Build frontend + deps ==="
 # www-data a souvent HOME=/var/www ; un npm lancé en root y laisse un cache propriétaire root → EACCES
@@ -135,7 +143,8 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now mhw-api.service
+systemctl enable mhw-api.service
+systemctl restart mhw-api.service
 
 echo "=== Nginx (HTTP d'abord, Certbot ensuite) ==="
 cat >/etc/nginx/sites-available/mhw-geoguesser <<EOF
@@ -167,14 +176,19 @@ EOF
 ln -sf /etc/nginx/sites-available/mhw-geoguesser /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
 nginx -t
-systemctl reload nginx
+systemctl enable nginx
+systemctl restart nginx
 
 echo "=== Certbot (HTTPS) ==="
-apt-get install -y certbot python3-certbot-nginx
-certbot --nginx -d "$DOMAIN" -d "$DOMAIN_WWW" --non-interactive --agree-tos -m "$CERTBOT_EMAIL" --redirect
+if [[ "$SKIP_CERTBOT" == "1" ]]; then
+  echo "SKIP_CERTBOT=1 : pas de Let’s Encrypt. Teste http://${DOMAIN}/ puis relance sans SKIP_CERTBOT."
+else
+  apt-get install -y certbot python3-certbot-nginx
+  certbot --nginx -d "$DOMAIN" -d "$DOMAIN_WWW" --non-interactive --agree-tos -m "$CERTBOT_EMAIL" --redirect
+fi
 
 echo "=== Terminé ==="
-echo "Sites : https://${DOMAIN} et https://${DOMAIN_WWW}"
+echo "Sites : https://${DOMAIN} et https://${DOMAIN_WWW} (HTTP seul si SKIP_CERTBOT=1)"
 echo "DNS : enregistrements A pour @ et www → même IP du VPS (sinon www restera cassé)."
 echo "Mot de passe BDD (copie sécurisée) : fichier $DB_PASS_FILE"
 echo "Logs API : journalctl -u mhw-api -f"
