@@ -4,7 +4,7 @@ import multer from 'multer';
 import mysql from 'mysql2/promise';
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // Multer : stockage en mémoire pour upload vers la BDD
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -12,12 +12,12 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 app.use(cors());
 app.use(express.json());
 
-// Database connection
+// Database connection (variables lues par systemd en prod, défauts = dev local)
 const db = mysql.createPool({
-  host: 'localhost',
-  user: 'root',
-  password: '',
-  database: 'monster_hunter_geoguesser',
+  host: process.env.MYSQL_HOST || 'localhost',
+  user: process.env.MYSQL_USER || 'root',
+  password: process.env.MYSQL_PASSWORD ?? '',
+  database: process.env.MYSQL_DATABASE || 'monster_hunter_geoguesser',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
