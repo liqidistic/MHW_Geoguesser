@@ -73,10 +73,10 @@
                 class="map-overlay-canvas"
                 @click="handleMapClick"
               ></canvas>
+              <div class="map-overlay-text">
+                <p>Cliquez sur les localisations (points dorés) pour afficher leur carte et placer votre marqueur. Double-clic pour zoomer/dézoomer.</p>
+              </div>
             </div>
-          </div>
-          <div class="map-overlay-text">
-            <p>Cliquez sur les localisations (points dorés) pour afficher leur carte et placer votre marqueur. Double-clic pour zoomer/dézoomer.</p>
           </div>
         </div>
 
