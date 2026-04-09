@@ -172,24 +172,6 @@ header h1 {
     cursor: pointer;
 }
 
-.map-overlay-text {
-    position: absolute;
-    top: auto;
-    bottom: 10px;
-    left: 10px;
-    background: rgba(0, 0, 0, 0.7);
-    padding: 10px 15px;
-    border-radius: 8px;
-    font-size: 0.9em;
-    pointer-events: none;
-    z-index: 5;
-    max-width: calc(100% - 20px);
-}
-
-.map-overlay-text p {
-    margin: 0;
-    line-height: 1.3;
-}
 
 .location-detail-image {
     max-width: 100%;
@@ -682,11 +664,6 @@ header h1 {
     .map-image,
     .location-detail-image {
         max-height: 70vh;
-    }
-
-    .map-overlay-text {
-        padding: 8px 12px;
-        font-size: 0.85em;
     }
 
     .site-footer {
